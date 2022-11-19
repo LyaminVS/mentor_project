@@ -41,7 +41,13 @@ class MAXCUTSolver:
         self.sim = cirq.Simulator()
 
     def draw_graph(self):
-        nx.draw(self.G, with_labels=True, alpha=0.5, node_size=500, width=self.weights)
+        pos = nx.spring_layout(self.G)
+        nx.draw_networkx(self.G, pos, with_labels=True, alpha=0.5, node_size=500, width=self.weights)
+        edge_labels = dict([((n1, n2), np.round(d['weight'], 2))
+                            for n1, n2, d in self.G.edges(data=True)])
+
+        nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels,
+                                     font_color='red')
 
     def create_circuit(self):
         qudits = cirq.LineQid.range(self.node_number, dimension=self.qudit_dimension)
