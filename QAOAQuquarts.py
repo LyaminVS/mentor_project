@@ -83,7 +83,7 @@ class MAXCUTSolver:
         return sample_results
 
     def solve(self):
-        best_params = scipy.optimize.minimize(self.solve_for_parameters, np.array((1, 1)), method='COBYLA', bounds=((0.0, 2.0), (0.0, 2.0))).x
+        best_params = scipy.optimize.minimize(self.solve_for_parameters, np.array((1, 1)), method='COBYLA').x
         sample_results = self.make_step(best_params)
         head = sample_results.columns.to_list()
         head.remove("alpha")
@@ -116,7 +116,7 @@ class MAXCUTSolver:
         return self.estimate_cost(sample_results)
 
     def classical_solve(self):
-        all_states = [bin(i)[2:] + "0" * (self.node_number - len(bin(i)[2:])) for i in range(2 ** self.node_number)]
+        all_states = ["0" * (self.node_number - len(bin(i)[2:])) + bin(i)[2:] for i in range(2 ** self.node_number)]
         result = []
         for i, state in enumerate(all_states):
             result.append(0)
