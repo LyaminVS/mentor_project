@@ -6,6 +6,7 @@ from cirq.contrib.svg import SVGCircuit
 import sympy
 import scipy
 import custom_gates
+import pandas as pd
 
 
 class MAXCUTSolver:
@@ -37,7 +38,10 @@ class MAXCUTSolver:
             self.G,
             {e: {"weight": self.weights[i]} for i, e in enumerate(self.G.edges())}
         )
-        self.create_circuit()
+        if self.qudit_dimension == 2:
+            self.create_circuit()
+        elif self.qudit_dimension == 4:
+            self.create_circuit_4()
         self.sim = cirq.Simulator()
 
     def draw_graph(self):
@@ -49,15 +53,39 @@ class MAXCUTSolver:
         nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels,
                                      font_color='red')
 
-    def create_circuit(self):
-        qudits = cirq.LineQid.range(self.node_number, dimension=self.qudit_dimension)
+    def create_circuit_4(self):
+        qudits = cirq.LineQid.range(self.node_number // 2, dimension=4)
         self.circuit = cirq.Circuit()
         self.circuit.append(custom_gates.QuquartH().on_each(qudits))
+        mixing_ham = []
+        for (u, v, w) in self.G.edges(data=True):
+            if min(u, v) % 2 == 0 and min(u, v) + 1 == max(u, v):
+                mixing_ham.append(custom_gates.InnerQuquartZZ(self.alpha * w["weight"]).on(qudits[min(u, v) // 2]))
+            elif u % 2 == 0 and v % 2 == 0:
+                mixing_ham.append(custom_gates.OuterQuquartZZ(self.alpha * w["weight"], 0, 2).on(qudits[u // 2], qudits[v // 2]))
+            elif u % 2 == 1 and v % 2 == 0:
+                mixing_ham.append(custom_gates.OuterQuquartZZ(self.alpha * w["weight"], 1, 2).on(qudits[(u - 1) // 2], qudits[v // 2]))
+            elif u % 2 == 0 and v % 2 == 1:
+                mixing_ham.append(custom_gates.OuterQuquartZZ(self.alpha * w["weight"], 0, 3).on(qudits[u // 2], qudits[(v - 1) // 2]))
+            elif u % 2 == 1 and v % 2 == 1:
+                mixing_ham.append(custom_gates.OuterQuquartZZ(self.alpha * w["weight"], 1, 3).on(qudits[(u - 1) // 2], qudits[(v - 1) // 2]))
+
+        problem_ham = cirq.Moment(custom_gates.QuquartX(self.beta).on_each(qudits))
+
+        for _ in range(self.layers):
+            self.circuit.append(mixing_ham)
+            self.circuit.append(problem_ham)
+        self.circuit.append((cirq.measure(qudit) for qudit in qudits))
+
+    def create_circuit(self):
+        qudits = cirq.LineQid.range(self.node_number, dimension=2)
+        self.circuit = cirq.Circuit()
+        self.circuit.append(cirq.H.on_each(qudits))
         mixing_ham = [
-                custom_gates.QuquartZZ(self.alpha * w["weight"], 0, 1).on(qudits[u], qudits[v])
+                cirq.ZZPowGate(exponent=self.alpha * w["weight"]).on(qudits[u], qudits[v])
                 for (u, v, w) in self.G.edges(data=True)
             ]
-        problem_ham = cirq.Moment(custom_gates.QuquartX(self.beta, 0, 1).on_each(qudits))
+        problem_ham = cirq.Moment(cirq.XPowGate(exponent=self.beta).on_each(qudits))
         for _ in range(self.layers):
             self.circuit.append(mixing_ham)
             self.circuit.append(problem_ham)
@@ -66,12 +94,22 @@ class MAXCUTSolver:
     def draw_circuit(self):
         return SVGCircuit(self.circuit)
 
+    def parse_from_4(self, measurements):
+        parsed_measurements = pd.DataFrame()
+        for i in range(self.node_number // 2):
+            parsed_measurements[f"q({2 * i}) (d=4)"] = measurements[f"q({i}) (d=4)"] // 2
+            parsed_measurements[f"q({2 * i + 1}) (d=4)"] = measurements[f"q({i}) (d=4)"] % 2
+        return parsed_measurements
+
     def estimate_cost(self, measurements):
         cost_value = 0.0
 
+        if self.qudit_dimension == 4:
+            measurements = self.parse_from_4(measurements)
+
         for u, v, w in self.G.edges(data=True):
-            u_samples = measurements[f"q({u}) (d=4)"]
-            v_samples = measurements[f"q({v}) (d=4)"]
+            u_samples = measurements[f"q({u}) (d={self.qudit_dimension})"]
+            v_samples = measurements[f"q({v}) (d={self.qudit_dimension})"]
 
             u_signs = (-1) ** u_samples
             v_signs = (-1) ** v_samples
@@ -86,14 +124,18 @@ class MAXCUTSolver:
             self.circuit, params={self.alpha: params[0], self.beta: params[1]}, repetitions=20000
         )
         self.results.append(self.estimate_cost(sample_results))
+        if self.qudit_dimension == 4:
+            sample_results = self.parse_from_4(sample_results)
         return sample_results
 
     def solve(self):
         best_params = scipy.optimize.minimize(self.solve_for_parameters, np.array((1, 1)), method='COBYLA').x
         sample_results = self.make_step(best_params)
         head = sample_results.columns.to_list()
-        head.remove("alpha")
-        head.remove("beta")
+        if "alpha" in head:
+            head.remove("alpha")
+        if "beta" in head:
+            head.remove("beta")
         sample_results['answer'] = sample_results[head].astype(str).values.sum(axis=1)
         self.data_for_hist = sample_results['answer'].value_counts(sort=True)
         self.best_params = best_params
