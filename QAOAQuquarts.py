@@ -14,7 +14,7 @@ class MAXCUTSolver:
         self.layers = layers
         self.G = graph
         self.weights = weights
-        self.circuit = None
+        self.circuit = cirq.Circuit()
         self.qudits = None
         self.measurements = None
         self.results = None
@@ -23,6 +23,7 @@ class MAXCUTSolver:
         self.beta = sympy.Symbol("beta")
         self.data_for_hist = None
         self.best_params = None
+        self.is_odd = False
         if graph is None:
             self.node_number = np.random.randint(9) + 3
             self.edges_number = np.random.randint(self.node_number * (self.node_number - 1) / 2 + 1)
@@ -30,6 +31,11 @@ class MAXCUTSolver:
         else:
             self.node_number = graph.number_of_nodes()
             self.edges_number = graph.number_of_edges()
+        self.pos = nx.spring_layout(self.G)
+        if self.node_number % 2 == 1:
+            self.G.add_node(self.node_number + 1)
+            self.node_number += 1
+            self.is_odd = True
 
         if weights is None:
             self.weights = np.random.rand(self.edges_number + 1) * 10
@@ -45,17 +51,19 @@ class MAXCUTSolver:
         self.sim = cirq.Simulator()
 
     def draw_graph(self):
-        pos = nx.spring_layout(self.G)
-        nx.draw_networkx(self.G, pos, with_labels=True, alpha=0.5, node_size=500, width=self.weights)
+        G_for_draw = self.G
+        if self.is_odd:
+            G_for_draw = self.G.subgraph(list(self.G.nodes())[:-1])
+
+        nx.draw_networkx(G_for_draw, self.pos, with_labels=True, alpha=0.5, node_size=500, width=self.weights)
         edge_labels = dict([((n1, n2), np.round(d['weight'], 2))
                             for n1, n2, d in self.G.edges(data=True)])
 
-        nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels,
+        nx.draw_networkx_edge_labels(self.G, self.pos, edge_labels=edge_labels,
                                      font_color='red')
 
     def create_circuit_4(self):
         qudits = cirq.LineQid.range(self.node_number // 2, dimension=4)
-        self.circuit = cirq.Circuit()
         self.circuit.append(custom_gates.QuquartH().on_each(qudits))
         mixing_ham = []
         for (u, v, w) in self.G.edges(data=True):
@@ -79,7 +87,6 @@ class MAXCUTSolver:
 
     def create_circuit(self):
         qudits = cirq.LineQid.range(self.node_number, dimension=2)
-        self.circuit = cirq.Circuit()
         self.circuit.append(cirq.H.on_each(qudits))
         mixing_ham = [
                 cirq.ZZPowGate(exponent=self.alpha * w["weight"]).on(qudits[u], qudits[v])
@@ -99,6 +106,7 @@ class MAXCUTSolver:
         for i in range(self.node_number // 2):
             parsed_measurements[f"q({2 * i}) (d=4)"] = measurements[f"q({i}) (d=4)"] // 2
             parsed_measurements[f"q({2 * i + 1}) (d=4)"] = measurements[f"q({i}) (d=4)"] % 2
+        parsed_measurements = parsed_measurements.iloc[:, :-1]
         return parsed_measurements
 
     def estimate_cost(self, measurements):
@@ -149,13 +157,23 @@ class MAXCUTSolver:
     def get_hist(self, accuracy=0):
         return self.data_for_hist[self.data_for_hist >= self.data_for_hist.max() * accuracy].plot(kind='bar')
 
-    def get_colored_graph(self):
+    def draw_colored_graph(self):
         color_code = list(list(self.data_for_hist.keys())[0])
         all_colors = ["limegreen", "gold"]
         colors = []
         for i, color in enumerate(color_code):
             colors.append(all_colors[int(color)])
-        nx.draw(self.G, with_labels=True, alpha=0.5, node_size=500, width=self.weights, node_color=colors)
+        G_for_draw = self.G
+        if self.is_odd:
+            G_for_draw = self.G.subgraph(list(self.G.nodes())[:-1])
+
+        nx.draw_networkx(G_for_draw, self.pos, with_labels=True, alpha=0.5, node_size=500, width=self.weights, node_color=colors)
+        edge_labels = dict([((n1, n2), np.round(d['weight'], 2))
+                            for n1, n2, d in self.G.edges(data=True)])
+
+        nx.draw_networkx_edge_labels(self.G, self.pos, edge_labels=edge_labels,
+                                     font_color='red')
+
 
     def solve_for_parameters(self, params):
         sample_results = self.sim.sample(
@@ -164,7 +182,10 @@ class MAXCUTSolver:
         return self.estimate_cost(sample_results)
 
     def classical_solve(self):
-        all_states = ["0" * (self.node_number - len(bin(i)[2:])) + bin(i)[2:] for i in range(2 ** self.node_number)]
+        count = self.node_number
+        if self.is_odd:
+            count -= 1
+        all_states = ["0" * (count - len(bin(i)[2:])) + bin(i)[2:] for i in range(2 ** count)]
         result = []
         for i, state in enumerate(all_states):
             result.append(0)
