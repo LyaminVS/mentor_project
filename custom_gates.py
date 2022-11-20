@@ -81,7 +81,7 @@ class OuterQuquartZZ(QuditGate):
         return self.__class__(resolver.value_of(self.theta, recursive), self.first_state, self.second_state)
 
     def _circuit_diagram_info_(self, args):
-        return f"[ZZ4-{self.first_state}]^{self.theta % 2}", f"[ZZ4-{self.second_state % 2}]^{self.theta}"
+        return f"[ZZ4-{self.first_state % 2}]^{self.theta}", f"[ZZ4-{self.second_state % 2}]^{self.theta}"
 
 
 class QuquartX(QuditGate):
