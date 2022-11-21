@@ -10,7 +10,8 @@ import pandas as pd
 
 
 class MAXCUTSolver:
-    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, verbose=False):
+    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, verbose=False, number_of_restarts=1):
+        self.number_of_restarts = number_of_restarts
         self.verbose = verbose
         self.layers = layers
         self.G = graph
@@ -119,7 +120,8 @@ class MAXCUTSolver:
         for i in range(self.node_number // 2):
             parsed_measurements[f"q({2 * i}) (d=4)"] = measurements[f"q({i}) (d=4)"] // 2
             parsed_measurements[f"q({2 * i + 1}) (d=4)"] = measurements[f"q({i}) (d=4)"] % 2
-        parsed_measurements = parsed_measurements.iloc[:, :-1]
+        if self.is_odd:
+            parsed_measurements = parsed_measurements.iloc[:, :-1]
         return parsed_measurements
 
     def estimate_cost(self, measurements):
@@ -169,9 +171,8 @@ class MAXCUTSolver:
     def add_one_layer(self, cur_layer):
         min_func = 10**10
         best_params = [0, 0]
-        number_of_restarts = 2
-        alpha = np.linspace(0, 2, num=number_of_restarts)
-        beta = np.linspace(0, 2, num=number_of_restarts)
+        alpha = np.linspace(0, 2, num=self.number_of_restarts)
+        beta = np.linspace(0, 2, num=self.number_of_restarts)
         i = 0
         for a in alpha:
             for b in beta:
@@ -183,7 +184,7 @@ class MAXCUTSolver:
                     best_params = tmp_best_params
                 if self.verbose:
                     i += 1
-                    tmp = int(((1 / number_of_restarts**2) * i + cur_layer) / self.layers * 100)
+                    tmp = int(((1 / self.number_of_restarts**2) * i + cur_layer) / self.layers * 100)
                     s = tmp * "|" + (100 - tmp) * "-"
                     print(s)
 
