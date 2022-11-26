@@ -1,7 +1,7 @@
 import cirq
 import numpy as np
-import matplotlib.pyplot as plt
 import networkx as nx
+import tqdm.auto
 from cirq.contrib.svg import SVGCircuit
 import sympy
 import scipy
@@ -10,16 +10,15 @@ import pandas as pd
 
 
 class MAXCUTSolver:
-    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, verbose=False, number_of_restarts=1):
+    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, number_of_restarts=1, noise = False):
         self.number_of_restarts = number_of_restarts
-        self.verbose = verbose
+        self.noise = noise
         self.layers = layers
         self.G = graph
         self.weights = weights
         self.circuit = cirq.Circuit()
         self.qudits = None
         self.measurements = None
-        self.results = None
         self.results = []
         self.alpha = sympy.Symbol("alpha")
         self.beta = sympy.Symbol("beta")
@@ -152,12 +151,12 @@ class MAXCUTSolver:
         return sample_results
 
     def solve(self):
-        for layer_num in range(self.layers):
+        for layer_num in tqdm.auto.tqdm(range(self.layers), leave=True):
             if self.qudit_dimension == 2:
                 self.create_circuit(layer_num + 1)
             elif self.qudit_dimension == 4:
                 self.create_circuit_4(layer_num + 1)
-            self.add_one_layer(layer_num)
+            self.train_one_layer()
 
         sample_results = self.make_step(self.best_params[-1])
         head = sample_results.columns.to_list()
@@ -168,27 +167,18 @@ class MAXCUTSolver:
         sample_results['answer'] = sample_results[head].astype(str).values.sum(axis=1)
         self.data_for_hist = sample_results['answer'].value_counts(sort=True)
 
-    def add_one_layer(self, cur_layer):
-        min_func = 10**10
-        best_params = [0, 0]
+    def train_one_layer(self):
         alpha = np.linspace(0, 2, num=self.number_of_restarts)
         beta = np.linspace(0, 2, num=self.number_of_restarts)
         i = 0
-        for a in alpha:
-            for b in beta:
-                min_res = scipy.optimize.minimize(self.solve_for_parameters, np.array((a, b)), method='COBYLA')
-                tmp_best_params = min_res.x
-                tmp_min_func = min_res.fun
-                if tmp_min_func < min_func:
-                    min_func = tmp_min_func
-                    best_params = tmp_best_params
-                if self.verbose:
-                    i += 1
-                    tmp = int(((1 / self.number_of_restarts**2) * i + cur_layer) / self.layers * 100)
-                    s = tmp * "|" + (100 - tmp) * "-"
-                    print(s)
-
-        self.best_params.append(best_params)
+        fun_results = []
+        params = []
+        for a in tqdm.auto.tqdm(alpha, leave=False):
+            for b in tqdm.auto.tqdm(beta, leave=False):
+                results = scipy.optimize.minimize(self.solve_for_parameters, np.array((a, b)), method='COBYLA')
+                fun_results.append(results.fun)
+                params.append(results.x)
+        self.best_params.append(params[fun_results.index(min(fun_results))])
 
     def get_data_for_hist(self):
         return self.data_for_hist
