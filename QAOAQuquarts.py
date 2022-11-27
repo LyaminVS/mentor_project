@@ -70,7 +70,7 @@ class MAXCUTSolver:
             mixing_ham = []
             exp1 = self.alpha
             exp2 = self.beta
-            p = 1
+            p = 0.1
             if i != layers - 1:
                 exp1 = self.best_params[i][0]
                 exp2 = self.best_params[i][1]
@@ -111,11 +111,11 @@ class MAXCUTSolver:
 
         self.circuit.append((cirq.measure(qudit) for qudit in qudits))
 
-    def create_circuit(self, layers):
+    def create_circuit_2(self, layers):
         self.circuit = cirq.Circuit()
         qudits = cirq.LineQid.range(self.node_number, dimension=2)
         self.circuit.append(cirq.H.on_each(qudits))
-
+        p = 0.1
         for i in range(layers):
             exp1 = self.alpha
             exp2 = self.beta
@@ -126,20 +126,23 @@ class MAXCUTSolver:
                 gate if self.is_noisy else cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v])
                 for (u, v, w) in self.G.edges(data=True)
                 for gate in (cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v]),
-                             cirq.depolarize(p=1, n_qubits=2).on(qudits[u], qudits[v]))
+                             cirq.depolarize(p=p, n_qubits=2).on(qudits[u], qudits[v]))
             ])
 
             self.circuit.append(cirq.Moment(cirq.XPowGate(exponent=exp2).on_each(qudits)))
             if self.is_noisy:
-                self.circuit.append(cirq.Moment(cirq.bit_flip(p=1).on_each(qudits)))
+                self.circuit.append(cirq.Moment(cirq.bit_flip(p=p).on_each(qudits)))
 
         self.circuit.append((cirq.measure(qudit) for qudit in qudits))
 
-    def draw_circuit(self):
+    def create_circuit(self, layers):
         if self.qudit_dimension == 2:
-            self.create_circuit(1)
+            self.create_circuit_2(layers)
         elif self.qudit_dimension == 4:
-            self.create_circuit_4(1)
+            self.create_circuit_4(layers)
+
+    def draw_circuit(self):
+        self.create_circuit(1)
         return SVGCircuit(self.circuit)
 
     def parse_from_4(self, measurements):
@@ -179,11 +182,8 @@ class MAXCUTSolver:
         return sample_results
 
     def solve(self):
-        for layer_num in tqdm.auto.tqdm(range(self.layers), leave=True):
-            if self.qudit_dimension == 2:
-                self.create_circuit(layer_num + 1)
-            elif self.qudit_dimension == 4:
-                self.create_circuit_4(layer_num + 1)
+        for layer_num in tqdm.auto.tqdm(range(self.layers), leave=False):
+            self.create_circuit(layer_num + 1)
             self.train_one_layer()
 
         sample_results = self.make_step(self.best_params[-1])
@@ -206,6 +206,7 @@ class MAXCUTSolver:
                 fun_results.append(results.fun)
                 params.append(results.x)
         self.best_params.append(params[fun_results.index(min(fun_results))])
+        return min(fun_results)
 
     def get_data_for_hist(self):
         return self.data_for_hist
