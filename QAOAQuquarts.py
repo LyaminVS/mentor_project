@@ -7,14 +7,15 @@ import sympy
 import scipy
 import custom_gates
 import pandas as pd
+import copy
 
 
 class MAXCUTSolver:
-    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, number_of_restarts=1, noise = False):
+    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, number_of_restarts=1, noise=False):
         self.number_of_restarts = number_of_restarts
         self.noise = noise
         self.layers = layers
-        self.G = graph
+        self.G = copy.copy(graph)
         self.weights = weights
         self.circuit = cirq.Circuit()
         self.qudits = None
@@ -25,27 +26,28 @@ class MAXCUTSolver:
         self.data_for_hist = None
         self.best_params = []
         self.is_odd = False
-        if graph is None:
+        self.is_noisy = noise
+        self.qudit_dimension = qudit_dimension
+        if self.G is None:
             self.node_number = np.random.randint(9) + 3
             self.edges_number = np.random.randint(self.node_number * (self.node_number - 1) / 2 + 1)
             self.G = nx.gnm_random_graph(self.node_number, self.edges_number)
         else:
-            self.node_number = graph.number_of_nodes()
-            self.edges_number = graph.number_of_edges()
+            self.node_number = self.G.number_of_nodes()
+            self.edges_number = self.G.number_of_edges()
         self.pos = nx.spring_layout(self.G)
-        if self.node_number % 2 == 1:
+        if self.node_number % 2 == 1 and self.qudit_dimension == 4:
             self.G.add_node(self.node_number + 1)
             self.node_number += 1
             self.is_odd = True
 
         if weights is None:
             self.weights = np.random.rand(self.edges_number + 1) * 10
-        self.qudit_dimension = qudit_dimension
         nx.set_edge_attributes(
             self.G,
             {e: {"weight": self.weights[i]} for i, e in enumerate(self.G.edges())}
         )
-        self.sim = cirq.Simulator()
+        self.sim = cirq.DensityMatrixSimulator()
 
     def draw_graph(self):
         G_for_draw = self.G
@@ -68,20 +70,40 @@ class MAXCUTSolver:
             mixing_ham = []
             exp1 = self.alpha
             exp2 = self.beta
+            p = 1
             if i != layers - 1:
                 exp1 = self.best_params[i][0]
                 exp2 = self.best_params[i][1]
             for (u, v, w) in self.G.edges(data=True):
                 if min(u, v) % 2 == 0 and min(u, v) + 1 == max(u, v):
                     mixing_ham.append(custom_gates.InnerQuquartZZ(exp1 * w["weight"]).on(qudits[min(u, v) // 2]))
+                    if self.is_noisy:
+                        mixing_ham.append(custom_gates.QuquartDepolarizingChannel(p).on(qudits[min(u, v) // 2]))
                 elif u % 2 == 0 and v % 2 == 0:
-                    mixing_ham.append(custom_gates.OuterQuquartZZ(exp1 * w["weight"], 0, 2).on(qudits[u // 2], qudits[v // 2]))
+                    mixing_ham.append(
+                        custom_gates.OuterQuquartZZ(exp1 * w["weight"], 0, 2).on(qudits[u // 2], qudits[v // 2]))
+                    if self.is_noisy:
+                        mixing_ham.append(
+                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[u // 2], qudits[v // 2]))
                 elif u % 2 == 1 and v % 2 == 0:
-                    mixing_ham.append(custom_gates.OuterQuquartZZ(exp1 * w["weight"], 1, 2).on(qudits[(u - 1) // 2], qudits[v // 2]))
+                    mixing_ham.append(
+                        custom_gates.OuterQuquartZZ(exp1 * w["weight"], 1, 2).on(qudits[(u - 1) // 2], qudits[v // 2]))
+                    if self.is_noisy:
+                        mixing_ham.append(
+                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[(u - 1) // 2], qudits[v // 2]))
                 elif u % 2 == 0 and v % 2 == 1:
-                    mixing_ham.append(custom_gates.OuterQuquartZZ(exp1 * w["weight"], 0, 3).on(qudits[u // 2], qudits[(v - 1) // 2]))
+                    mixing_ham.append(
+                        custom_gates.OuterQuquartZZ(exp1 * w["weight"], 0, 3).on(qudits[u // 2], qudits[(v - 1) // 2]))
+                    if self.is_noisy:
+                        mixing_ham.append(
+                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[u // 2], qudits[(v - 1) // 2]))
                 elif u % 2 == 1 and v % 2 == 1:
-                    mixing_ham.append(custom_gates.OuterQuquartZZ(exp1 * w["weight"], 1, 3).on(qudits[(u - 1) // 2], qudits[(v - 1) // 2]))
+                    mixing_ham.append(custom_gates.OuterQuquartZZ(exp1 * w["weight"], 1, 3).on(qudits[(u - 1) // 2],
+                                                                                               qudits[(v - 1) // 2]))
+                    if self.is_noisy:
+                        mixing_ham.append(
+                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[(u - 1) // 2],
+                                                                                qudits[(v - 1) // 2]))
 
             problem_ham = cirq.Moment(custom_gates.QuquartX(exp2).on_each(qudits))
             self.circuit.append(mixing_ham)
@@ -101,10 +123,16 @@ class MAXCUTSolver:
                 exp1 = self.best_params[i][0]
                 exp2 = self.best_params[i][1]
             self.circuit.append([
-                cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v])
+                gate if self.is_noisy else cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v])
                 for (u, v, w) in self.G.edges(data=True)
+                for gate in (cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v]),
+                             cirq.depolarize(p=1, n_qubits=2).on(qudits[u], qudits[v]))
             ])
+
             self.circuit.append(cirq.Moment(cirq.XPowGate(exponent=exp2).on_each(qudits)))
+            if self.is_noisy:
+                self.circuit.append(cirq.Moment(cirq.bit_flip(p=1).on_each(qudits)))
+
         self.circuit.append((cirq.measure(qudit) for qudit in qudits))
 
     def draw_circuit(self):
@@ -170,7 +198,6 @@ class MAXCUTSolver:
     def train_one_layer(self):
         alpha = np.linspace(0, 2, num=self.number_of_restarts)
         beta = np.linspace(0, 2, num=self.number_of_restarts)
-        i = 0
         fun_results = []
         params = []
         for a in tqdm.auto.tqdm(alpha, leave=False):
@@ -199,7 +226,8 @@ class MAXCUTSolver:
         if self.is_odd:
             G_for_draw = self.G.subgraph(list(self.G.nodes())[:-1])
 
-        nx.draw_networkx(G_for_draw, self.pos, with_labels=True, alpha=0.5, node_size=500, width=self.weights, node_color=colors)
+        nx.draw_networkx(G_for_draw, self.pos, with_labels=True, alpha=0.5, node_size=500, width=self.weights,
+                         node_color=colors)
         edge_labels = dict([((n1, n2), np.round(d['weight'], 2))
                             for n1, n2, d in self.G.edges(data=True)])
 

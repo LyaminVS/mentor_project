@@ -101,3 +101,47 @@ class QuquartX(QuditGate):
 
     def _circuit_diagram_info_(self, args):
         return f"[X4]^{self.theta}"
+
+
+class QuquartDepolarizingChannel(QuditGate):
+
+    def __init__(self, p=0.1):
+        super().__init__(dimension=4, num_qubits=1)
+        self.p = p
+        self.p_matrix = np.full(16, p / 15)
+        self.p_matrix[0] = 1 - p
+
+    def _mixture_(self):
+        ps = []
+        pauli = [cirq.unitary(cirq.I), cirq.unitary(cirq.X), cirq.unitary(cirq.Y), cirq.unitary(cirq.Z)]
+        for i in range(self.d):
+            for j in range(self.d):
+                op = np.kron(pauli[i], pauli[j])
+                ps.append(op)
+        return tuple(zip(self.p_matrix, ps))
+
+    def _circuit_diagram_info_(self, args):
+        return f"DC[{self.p}]"
+
+
+class DoubleQuquartDepolarizingChannel(QuditGate):
+    def __init__(self, p=0.1):
+        super().__init__(dimension=4, num_qubits=2)
+
+        self.p = p
+        self.p_matrix = np.full(256, p / 255)
+        self.p_matrix[0] = 1 - p
+
+    def _mixture_(self):
+        pauli = [cirq.unitary(cirq.I), cirq.unitary(cirq.X), cirq.unitary(cirq.Y), cirq.unitary(cirq.Z)]
+        ps = []
+        for i in range(self.d):
+            for j in range(self.d):
+                for k in range(self.d):
+                    for m in range(self.d):
+                        op = np.kron(np.kron(pauli[i], pauli[j]), np.kron(pauli[k], pauli[m]))
+                        ps.append(op)
+        return tuple(zip(self.p_matrix, ps))
+
+    def _circuit_diagram_info_(self, args):
+        return f"DDC[{self.p}]", f"DDC[{self.p}]"
