@@ -15,7 +15,7 @@ class MAXCUTSolver:
         self.number_of_restarts = number_of_restarts
         self.noise = noise
         self.layers = layers
-        self.G = copy.copy(graph)
+        self.G = copy.deepcopy(graph)
         self.weights = weights
         self.circuit = cirq.Circuit()
         self.qudits = None
@@ -50,7 +50,7 @@ class MAXCUTSolver:
         self.sim = cirq.DensityMatrixSimulator()
 
     def draw_graph(self):
-        G_for_draw = self.G
+        G_for_draw = copy.copy(self.G)
         if self.is_odd:
             G_for_draw = self.G.subgraph(list(self.G.nodes())[:-1])
 
@@ -61,85 +61,87 @@ class MAXCUTSolver:
         nx.draw_networkx_edge_labels(self.G, self.pos, edge_labels=edge_labels,
                                      font_color='red')
 
-    def create_circuit_4(self, layers):
+    def create_circuit_4(self, layers, is_best_params=False, p_one_qubit=0.001, p_two_qubit=0.01):
         self.circuit = cirq.Circuit()
         qudits = cirq.LineQid.range(self.node_number // 2, dimension=4)
         self.circuit.append(custom_gates.QuquartH().on_each(qudits))
-
+        if self.is_noisy:
+            self.circuit.append(custom_gates.QuquartDepolarizingChannel(p_one_qubit).on_each(qudits))
         for i in range(layers):
             mixing_ham = []
             exp1 = self.alpha
             exp2 = self.beta
-            p = 0.1
-            if i != layers - 1:
+            if i != layers - 1 or is_best_params:
                 exp1 = self.best_params[i][0]
                 exp2 = self.best_params[i][1]
             for (u, v, w) in self.G.edges(data=True):
                 if min(u, v) % 2 == 0 and min(u, v) + 1 == max(u, v):
                     mixing_ham.append(custom_gates.InnerQuquartZZ(exp1 * w["weight"]).on(qudits[min(u, v) // 2]))
                     if self.is_noisy:
-                        mixing_ham.append(custom_gates.QuquartDepolarizingChannel(p).on(qudits[min(u, v) // 2]))
+                        mixing_ham.append(custom_gates.QuquartDepolarizingChannel(p_one_qubit).on(qudits[min(u, v) // 2]))
                 elif u % 2 == 0 and v % 2 == 0:
                     mixing_ham.append(
                         custom_gates.OuterQuquartZZ(exp1 * w["weight"], 0, 2).on(qudits[u // 2], qudits[v // 2]))
                     if self.is_noisy:
                         mixing_ham.append(
-                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[u // 2], qudits[v // 2]))
+                            custom_gates.DoubleQuquartDepolarizingChannel(p_two_qubit).on(qudits[u // 2], qudits[v // 2]))
                 elif u % 2 == 1 and v % 2 == 0:
                     mixing_ham.append(
                         custom_gates.OuterQuquartZZ(exp1 * w["weight"], 1, 2).on(qudits[(u - 1) // 2], qudits[v // 2]))
                     if self.is_noisy:
                         mixing_ham.append(
-                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[(u - 1) // 2], qudits[v // 2]))
+                            custom_gates.DoubleQuquartDepolarizingChannel(p_two_qubit).on(qudits[(u - 1) // 2], qudits[v // 2]))
                 elif u % 2 == 0 and v % 2 == 1:
                     mixing_ham.append(
                         custom_gates.OuterQuquartZZ(exp1 * w["weight"], 0, 3).on(qudits[u // 2], qudits[(v - 1) // 2]))
                     if self.is_noisy:
                         mixing_ham.append(
-                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[u // 2], qudits[(v - 1) // 2]))
+                            custom_gates.DoubleQuquartDepolarizingChannel(p_two_qubit).on(qudits[u // 2], qudits[(v - 1) // 2]))
                 elif u % 2 == 1 and v % 2 == 1:
                     mixing_ham.append(custom_gates.OuterQuquartZZ(exp1 * w["weight"], 1, 3).on(qudits[(u - 1) // 2],
                                                                                                qudits[(v - 1) // 2]))
                     if self.is_noisy:
                         mixing_ham.append(
-                            custom_gates.DoubleQuquartDepolarizingChannel(p).on(qudits[(u - 1) // 2],
+                            custom_gates.DoubleQuquartDepolarizingChannel(p_two_qubit).on(qudits[(u - 1) // 2],
                                                                                 qudits[(v - 1) // 2]))
 
-            problem_ham = cirq.Moment(custom_gates.QuquartX(exp2).on_each(qudits))
+            problem_ham = [cirq.Moment(custom_gates.QuquartX(exp2).on_each(qudits))]
             self.circuit.append(mixing_ham)
             self.circuit.append(problem_ham)
+            if self.is_noisy:
+                self.circuit.append(custom_gates.QuquartDepolarizingChannel(p_one_qubit).on_each(qudits))
 
         self.circuit.append((cirq.measure(qudit) for qudit in qudits))
 
-    def create_circuit_2(self, layers):
+    def create_circuit_2(self, layers, is_best_params=False, p_one_qubit=0.001, p_two_qubit=0.01):
         self.circuit = cirq.Circuit()
         qudits = cirq.LineQid.range(self.node_number, dimension=2)
         self.circuit.append(cirq.H.on_each(qudits))
-        p = 0.1
+        if self.is_noisy:
+            self.circuit.append(cirq.Moment(cirq.bit_flip(p=p_one_qubit).on_each(qudits)))
         for i in range(layers):
             exp1 = self.alpha
             exp2 = self.beta
-            if i != layers - 1:
+            if i != layers - 1 or is_best_params:
                 exp1 = self.best_params[i][0]
                 exp2 = self.best_params[i][1]
             self.circuit.append([
-                gate if self.is_noisy else cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v])
+                (cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v]),
+                 cirq.depolarize(p=p_two_qubit, n_qubits=2).on(qudits[u], qudits[v])) if self.is_noisy else cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v])
                 for (u, v, w) in self.G.edges(data=True)
-                for gate in (cirq.ZZPowGate(exponent=exp1 * w["weight"]).on(qudits[u], qudits[v]),
-                             cirq.depolarize(p=p, n_qubits=2).on(qudits[u], qudits[v]))
             ])
 
             self.circuit.append(cirq.Moment(cirq.XPowGate(exponent=exp2).on_each(qudits)))
             if self.is_noisy:
-                self.circuit.append(cirq.Moment(cirq.bit_flip(p=p).on_each(qudits)))
+                self.circuit.append(cirq.Moment(cirq.bit_flip(p=p_one_qubit).on_each(qudits)))
 
         self.circuit.append((cirq.measure(qudit) for qudit in qudits))
 
-    def create_circuit(self, layers):
+    def create_circuit(self, layers, is_best_params=False, p_one_qubit=0.001, p_two_qubit=0.01):
         if self.qudit_dimension == 2:
-            self.create_circuit_2(layers)
+            self.create_circuit_2(layers, is_best_params, p_one_qubit, p_two_qubit)
         elif self.qudit_dimension == 4:
-            self.create_circuit_4(layers)
+            self.create_circuit_4(layers, is_best_params, p_one_qubit, p_two_qubit)
 
     def draw_circuit(self):
         self.create_circuit(1)
@@ -223,7 +225,7 @@ class MAXCUTSolver:
         colors = []
         for i, color in enumerate(color_code):
             colors.append(all_colors[int(color)])
-        G_for_draw = self.G
+        G_for_draw = copy.copy(self.G)
         if self.is_odd:
             G_for_draw = self.G.subgraph(list(self.G.nodes())[:-1])
 
@@ -240,6 +242,28 @@ class MAXCUTSolver:
             self.circuit, params={self.alpha: params[0], self.beta: params[1]}, repetitions=20000
         )
         return self.estimate_cost(sample_results)
+
+    def get_fidelities(self):
+        self.create_circuit(self.layers, is_best_params=True, p_one_qubit=0, p_two_qubit=0)
+
+        zero_state = np.zeros((2**self.node_number, 2**self.node_number))
+        zero_state[0][0] = 1
+
+        densities_with_noise = [zero_state]
+        for step_result in self.sim.simulate_moment_steps(self.circuit):
+            densities_with_noise.append(step_result.density_matrix())
+
+        self.create_circuit(self.layers, is_best_params=True, p_one_qubit=0.01, p_two_qubit=0.1)
+
+        densities_without_noise = [zero_state]
+        for step_result in self.sim.simulate_moment_steps(self.circuit):
+            densities_without_noise.append(step_result.density_matrix())
+
+        fidelities = []
+        for i in range(len(densities_with_noise)):
+            fidelities.append(cirq.fidelity(cirq.density_matrix(densities_with_noise[i], atol=0.001),
+                                            cirq.density_matrix(densities_without_noise[i], atol=0.001), atol=0.001))
+        return fidelities
 
     def classical_solve(self):
         count = self.node_number
