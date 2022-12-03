@@ -11,8 +11,10 @@ import copy
 
 
 class MAXCUTSolver:
-    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, number_of_restarts=1, noise=False):
+    def __init__(self, qudit_dimension=4, layers=1, graph=None, weights=None, number_of_restarts=1, noise=False, p_one_qubit=0.001, p_two_qubit=0.01):
         self.number_of_restarts = number_of_restarts
+        self.p_one_qubit = p_one_qubit
+        self.p_two_qubit = p_two_qubit
         self.noise = noise
         self.layers = layers
         self.G = copy.deepcopy(graph)
@@ -185,7 +187,7 @@ class MAXCUTSolver:
 
     def solve(self):
         for layer_num in tqdm.auto.tqdm(range(self.layers), leave=False):
-            self.create_circuit(layer_num + 1)
+            self.create_circuit(layer_num + 1, p_one_qubit=self.p_one_qubit, p_two_qubit=self.p_two_qubit)
             self.train_one_layer()
 
         sample_results = self.make_step(self.best_params[-1])
@@ -246,23 +248,20 @@ class MAXCUTSolver:
     def get_fidelities(self):
         self.create_circuit(self.layers, is_best_params=True, p_one_qubit=0, p_two_qubit=0)
 
-        zero_state = np.zeros((2**self.node_number, 2**self.node_number))
-        zero_state[0][0] = 1
-
-        densities_with_noise = [zero_state]
+        densities_with_noise = []
         for step_result in self.sim.simulate_moment_steps(self.circuit):
             densities_with_noise.append(step_result.density_matrix())
 
-        self.create_circuit(self.layers, is_best_params=True, p_one_qubit=0.01, p_two_qubit=0.1)
+        self.create_circuit(self.layers, is_best_params=True, p_one_qubit=self.p_one_qubit, p_two_qubit=self.p_two_qubit)
 
-        densities_without_noise = [zero_state]
+        densities_without_noise = []
         for step_result in self.sim.simulate_moment_steps(self.circuit):
             densities_without_noise.append(step_result.density_matrix())
 
         fidelities = []
         for i in range(len(densities_with_noise)):
-            fidelities.append(cirq.fidelity(cirq.density_matrix(densities_with_noise[i], atol=0.001),
-                                            cirq.density_matrix(densities_without_noise[i], atol=0.001), atol=0.001))
+            fidelities.append(cirq.fidelity(cirq.density_matrix(densities_with_noise[i], atol=0.0001),
+                                            cirq.density_matrix(densities_without_noise[i], atol=0.0001), atol=0.0001))
         return fidelities
 
     def classical_solve(self):
