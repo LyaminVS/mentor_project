@@ -1,3 +1,5 @@
+import random
+
 import cirq
 import numpy as np
 import networkx as nx
@@ -146,7 +148,9 @@ class MAXCUTSolver:
             self.create_circuit_4(layers, is_best_params, p_one_qubit, p_two_qubit)
 
     def draw_circuit(self):
-        self.create_circuit(1)
+        self.best_params = [np.array([np.random.rand() * 2 * np.pi + 2 * np.pi, np.random.rand() * 2 * np.pi + 2 * np.pi]), np.array([np.random.rand() * 2 * np.pi + 2 * np.pi, np.random.rand() * 2 * np.pi + 2 * np.pi]), np.array([np.random.rand() * 2 * np.pi+ 2 * np.pi, np.random.rand() * 2 * np.pi+ 2 * np.pi])]
+        self.create_circuit(3, is_best_params=True)
+        self.best_params = []
         return SVGCircuit(self.circuit)
 
     def parse_from_4(self, measurements):

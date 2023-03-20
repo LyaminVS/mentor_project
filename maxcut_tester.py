@@ -27,10 +27,25 @@ class MAXCUTTester:
             layers.append(num)
         fig, ax = plt.subplots(1, 1)
 
-        ax.set_xlabel("layers")
-        ax.set_ylabel("cost function")
+        solver_1 = QAOAQuquarts.MAXCUTSolver(qudit_dimension=dimension, layers=max_layers, graph=graph, noise=noise,
+                                           p_one_qubit=0.01, p_two_qubit=0.1)
+        cost_1 = []
+        layers_1 = []
+        for num_1 in tqdm.auto.tqdm(range(1, max_layers + 1), leave=True):
+            solver_1.create_circuit(num_1)
+            cost_1.append(solver_1.train_one_layer())
+            layers_1.append(num_1)
 
-        ax.plot(layers[min_layers - 1:], cost[min_layers - 1:])
+        ax.set_xlabel("layers", fontsize=15)
+        ax.set_ylabel("cost function", fontsize=15)
+
+
+
+        ax.plot(layers[min_layers - 1:], cost[min_layers - 1:], label="Кубиты")
+
+        ax.plot(layers_1[min_layers - 1:], cost_1[min_layers - 1:], label="Кудиты")
+
+        plt.legend()
 
     def classical_solve_time(self, graph):
         solver = QAOAQuquarts.MAXCUTSolver(qudit_dimension=2, layers=1, graph=graph)

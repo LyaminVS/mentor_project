@@ -1,6 +1,7 @@
 import cirq
 import numpy as np
 import scipy
+import math
 
 
 class QuditGate(cirq.Gate):
@@ -53,7 +54,7 @@ class InnerQuquartZZ(QuditGate):
         return self.__class__(resolver.value_of(self.theta, recursive))
 
     def _circuit_diagram_info_(self, args):
-        return f"[InnerZZ4]^{self.theta}"
+        return f"[InnerZZ4]^{round(self.theta, 3)}"
 
 
 class OuterQuquartZZ(QuditGate):
@@ -81,7 +82,7 @@ class OuterQuquartZZ(QuditGate):
         return self.__class__(resolver.value_of(self.theta, recursive), self.first_state, self.second_state)
 
     def _circuit_diagram_info_(self, args):
-        return f"[ZZ4-{self.first_state % 2}]^{self.theta}", f"[ZZ4-{self.second_state % 2}]^{self.theta}"
+        return f"[ZZ4{self.first_state % 2}]^{round(self.theta, 3)}", f"[ZZ4{self.second_state % 2}]^{round(self.theta, 3)}"
 
 
 class QuquartX(QuditGate):
@@ -100,7 +101,7 @@ class QuquartX(QuditGate):
         return self.__class__(resolver.value_of(self.theta, recursive))
 
     def _circuit_diagram_info_(self, args):
-        return f"[X4]^{self.theta}"
+        return f"[X4]^{round(self.theta, 3)}"
 
 
 class QuquartDepolarizingChannel(QuditGate):
